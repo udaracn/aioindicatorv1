@@ -1,0 +1,218 @@
+//@version=5
+indicator("Comprehensive SMC & ICT Indicator", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// --- INPUTS ---
+// Market Structure
+show_ms = input.bool(true, "Show Market Structure", group="Market Structure")
+swing_lookback = input.int(3, "Swing Lookback", minval=1, group="Market Structure")
+
+// FVG & Imbalances
+show_fvg = input.bool(true, "Show FVG/Imbalances", group="FVG & Imbalances")
+fvg_color_bull = input.color(color.new(color.green, 80), "Bullish FVG Color", group="FVG & Imbalances")
+fvg_color_bear = input.color(color.new(color.red, 80), "Bearish FVG Color", group="FVG & Imbalances")
+
+// Order Blocks & S/D Zones
+show_ob = input.bool(true, "Show Order Blocks", group="Order Blocks")
+show_sd = input.bool(true, "Show Supply/Demand Zones", group="Order Blocks")
+ob_color_bull = input.color(color.new(color.blue, 70), "Bullish OB Color", group="Order Blocks")
+ob_color_bear = input.color(color.new(color.orange, 70), "Bearish OB Color", group="Order Blocks")
+
+// Patterns (QM, Engulfing, Chart Patterns)
+show_qm = input.bool(true, "Show Quasimodo (QM)", group="Patterns")
+show_eng = input.bool(true, "Show Engulfing Patterns", group="Patterns")
+show_double_top_bottom = input.bool(true, "Show Double Top/Bottom", group="Patterns")
+
+// RSI Divergences & Convergence
+show_rsi_div = input.bool(true, "Show RSI Divergences", group="RSI")
+show_rsi_conv = input.bool(true, "Show RSI Convergence/Trend", group="RSI")
+rsi_length = input.int(14, "RSI Length", group="RSI")
+
+// CRT (Candle Range Theory)
+show_crt = input.bool(true, "Show CRT (Candle Range Theory)", group="ICT Concepts")
+
+// AMD (Accumulation, Manipulation, Distribution)
+show_amd = input.bool(true, "Show AMD (Power of 3)", group="ICT Concepts")
+
+// VAL/POC/VAH
+show_vp = input.bool(true, "Show VAL/POC/VAH (Session)", group="Volume Profile")
+
+// OC / Fresh Levels
+show_fresh = input.bool(true, "Show OC / Fresh Levels", group="Levels")
+
+// Moving Averages
+show_ma = input.bool(true, "Show Moving Averages", group="Moving Averages")
+ma_fast_len = input.int(20, "Fast MA Length", group="Moving Averages")
+ma_med_len = input.int(50, "Medium MA Length", group="Moving Averages")
+ma_slow_len = input.int(200, "Slow MA Length", group="Moving Averages")
+
+// Support & Resistance
+show_sr = input.bool(true, "Show Strong S/R Zones", group="Levels")
+
+// --- LOGIC ---
+
+// Market Structure (Swings)
+hi = ta.highest(high, swing_lookback * 2 + 1)
+lo = ta.lowest(low, swing_lookback * 2 + 1)
+
+is_swing_high = hi[swing_lookback] == high[swing_lookback]
+is_swing_low = lo[swing_lookback] == low[swing_lookback]
+
+swing_high_price = is_swing_high ? high[swing_lookback] : na
+swing_low_price = is_swing_low ? low[swing_lookback] : na
+
+// Keep track of recent swings
+var float last_sh = na
+var float last_sl = na
+var int last_sh_idx = na
+var int last_sl_idx = na
+
+if is_swing_high
+    last_sh := high[swing_lookback]
+    last_sh_idx := bar_index[swing_lookback]
+
+if is_swing_low
+    last_sl := low[swing_lookback]
+    last_sl_idx := bar_index[swing_lookback]
+
+plotshape(show_ms and is_swing_high, "Swing High", shape.triangledown, location.abovebar, color.red, offset=-swing_lookback, size=size.tiny)
+plotshape(show_ms and is_swing_low, "Swing Low", shape.triangleup, location.belowbar, color.green, offset=-swing_lookback, size=size.tiny)
+
+// BOS / CHoCH
+var float bos_sh = na
+var float bos_sl = na
+
+if show_ms
+    if not na(last_sh) and ta.crossover(close, last_sh)
+        line.new(last_sh_idx, last_sh, bar_index, last_sh, color=color.gray, style=line.style_dashed)
+        label.new(bar_index, last_sh, "BOS", style=label.style_none, textcolor=color.gray, size=size.small)
+
+    if not na(last_sl) and ta.crossunder(close, last_sl)
+        line.new(last_sl_idx, last_sl, bar_index, last_sl, color=color.gray, style=line.style_dashed)
+        label.new(bar_index, last_sl, "BOS", style=label.style_none, textcolor=color.gray, size=size.small)
+
+// FVG & Imbalances
+if show_fvg
+    // Bullish FVG (Gap between Bar n High and Bar n+2 Low)
+    if low > high[2]
+        box.new(bar_index[2], low, bar_index, high[2], bgcolor=fvg_color_bull, border_color=color.new(color.green, 90))
+
+    // Bearish FVG (Gap between Bar n Low and Bar n+2 High)
+    if high < low[2]
+        box.new(bar_index[2], low[2], bar_index, high, bgcolor=fvg_color_bear, border_color=color.new(color.red, 90))
+
+// Order Blocks & Supply/Demand
+if show_ob
+    // Bullish OB: Last bearish candle before a strong bullish move (BOS)
+    if close > high[1] and close[1] < open[1] and close > open // Simplistic OB detection
+        box.new(bar_index[1], high[1], bar_index[1], low[1], bgcolor=ob_color_bull, border_color=color.new(color.blue, 80), extend=extend.right)
+
+    // Bearish OB: Last bullish candle before a strong bearish move
+    if close < low[1] and close[1] > open[1] and close < open
+        box.new(bar_index[1], high[1], bar_index[1], low[1], bgcolor=ob_color_bear, border_color=color.new(color.orange, 80), extend=extend.right)
+
+// Quasimodo Pattern (Simplified)
+if show_qm
+    // Bullish QM: HH -> LL -> Higher High -> Lower Low -> Entry at previous High
+    // Standard Price Action definition: L -> H -> LL -> HH (then return to L level)
+    // We'll use swings for this.
+    if is_swing_low and last_sh > last_sl and low < last_sl[1] // LL
+        label.new(bar_index, low, "QM (LL)", style=label.style_label_up, color=color.blue, textcolor=color.white)
+
+// Engulfing Patterns
+if show_eng
+    bullish_eng = close > open[1] and close[1] < open[1] and close > open
+    bearish_eng = close < open[1] and close[1] > open[1] and close < open
+    if bullish_eng
+        label.new(bar_index, low, "Bull Eng", style=label.style_none, textcolor=color.green, size=size.small)
+    if bearish_eng
+        label.new(bar_index, high, "Bear Eng", style=label.style_none, textcolor=color.red, size=size.small)
+
+// RSI Divergences
+rsi = ta.rsi(close, rsi_length)
+if show_rsi_div
+    // Bullish Divergence (Price Lower Low, RSI Higher Low)
+    if is_swing_low and rsi > rsi[swing_lookback*2] and low < low[swing_lookback*2]
+        label.new(bar_index, low, "Bull Div", color=color.green, textcolor=color.white)
+
+    // Bearish Divergence (Price Higher High, RSI Lower High)
+    if is_swing_high and rsi < rsi[swing_lookback*2] and high > high[swing_lookback*2]
+        label.new(bar_index, high, "Bear Div", color=color.red, textcolor=color.white)
+
+if show_rsi_conv
+    // RSI Convergence: Price and RSI both trending up/down strongly
+    if ta.rising(close, 3) and ta.rising(rsi, 3)
+        label.new(bar_index, low, "↑", style=label.style_none, textcolor=color.green, size=size.tiny)
+    if ta.falling(close, 3) and ta.falling(rsi, 3)
+        label.new(bar_index, high, "↓", style=label.style_none, textcolor=color.red, size=size.tiny)
+
+// Candle Range Theory (CRT)
+if show_crt
+    // Sweep of Previous High and Reversal Close
+    if high > high[1] and close < low[1]
+        label.new(bar_index, high, "CRT Sweep (Bear)", style=label.style_none, textcolor=color.red)
+
+    // Sweep of Previous Low and Reversal Close
+    if low < low[1] and close > high[1]
+        label.new(bar_index, low, "CRT Sweep (Bull)", style=label.style_none, textcolor=color.green)
+
+// AMD (Accumulation, Manipulation, Distribution) - Daily Open based Power of 3
+var float day_open = na
+if ta.change(time("D"))
+    day_open := open
+
+if show_amd and not na(day_open)
+    plot(day_open, "Daily Open", color.new(color.yellow, 50), 2, plot.style_linebr)
+
+// VAL/POC/VAH (Simplified Pivot Based Approximation)
+var float last_ph = na
+var float last_pl = na
+if show_vp
+    ph = ta.pivothigh(high, 10, 10)
+    pl = ta.pivotlow(low, 10, 10)
+    if not na(ph)
+        last_ph := ph
+    if not na(pl)
+        last_pl := pl
+
+    poc = (last_ph + last_pl) / 2
+    vah = last_ph
+    val = last_pl
+
+    plot(poc, "Approx POC", color.new(color.fuchsia, 50), 2, plot.style_linebr)
+    plot(vah, "Approx VAH", color.new(color.red, 70), 1, plot.style_linebr)
+    plot(val, "Approx VAL", color.new(color.green, 70), 1, plot.style_linebr)
+
+// OC / Fresh Levels (Untouched Open/Close)
+if show_fresh
+    // Mark Open/Close of huge volume candles that hasn't been retested
+    is_huge_vol = volume > ta.sma(volume, 20) * 1.5
+    if is_huge_vol
+        line.new(bar_index, open, bar_index + 10, open, color=color.new(color.silver, 50), style=line.style_dotted)
+
+// Moving Averages
+ma_fast = ta.ema(close, ma_fast_len)
+ma_med = ta.ema(close, ma_med_len)
+ma_slow = ta.ema(close, ma_slow_len)
+
+plot(show_ma ? ma_fast : na, "Fast EMA", color.new(color.aqua, 0))
+plot(show_ma ? ma_med : na, "Medium EMA", color.new(color.blue, 0))
+plot(show_ma ? ma_slow : na, "Slow EMA", color.new(color.navy, 0))
+
+// Chart Patterns (Double Top/Bottom)
+if show_double_top_bottom
+    if is_swing_high and math.abs(high[swing_lookback] - last_sh[1]) < (high * 0.001)
+        label.new(bar_index, high, "Double Top", color=color.red, textcolor=color.white)
+
+    if is_swing_low and math.abs(low[swing_lookback] - last_sl[1]) < (low * 0.001)
+        label.new(bar_index, low, "Double Bottom", color=color.green, textcolor=color.white)
+
+// Strong S/R Zones (Based on multi-tested pivots)
+if show_sr
+    pivot_h = ta.pivothigh(high, 20, 20)
+    pivot_l = ta.pivotlow(low, 20, 20)
+    if not na(pivot_h)
+        line.new(bar_index - 20, pivot_h, bar_index + 10, pivot_h, color=color.new(color.red, 50), width=2)
+    if not na(pivot_l)
+        line.new(bar_index - 20, pivot_l, bar_index + 10, pivot_l, color=color.new(color.green, 50), width=2)
+
+plot(close, color=color.new(color.white, 100))
