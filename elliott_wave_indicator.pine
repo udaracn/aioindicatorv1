@@ -318,10 +318,10 @@ if not na(ph) or not na(pl)
     // forecast_next_waves()
 
 // --- PERSISTENT FORECAST BOXES (Updating) ---
-var box w3_forecast_box = box(na)
-var box w4_forecast_box = box(na)
-var box w5_forecast_box = box(na)
-var box wc_forecast_box = box(na)
+var box w3_forecast_box = na
+var box w4_forecast_box = na
+var box w5_forecast_box = na
+var box wc_forecast_box = na
 
 update_forecasts() =>
     if not show_forecast or pivots.size() < 2
@@ -335,7 +335,9 @@ update_forecasts() =>
 
     // Wave 3 target
     if pivots.size() >= 3
-        p0 = pivots.get(2), p1 = pivots.get(1), p2 = pivots.get(0)
+        p0 = pivots.get(2)
+        p1 = pivots.get(1)
+        p2 = pivots.get(0)
         is_bullish = p1.price > p0.price
         w1_len = math.abs(p1.price - p0.price)
         w3_target = p2.price + (is_bullish ? 1.618 * w1_len : -1.618 * w1_len)
@@ -343,8 +345,10 @@ update_forecasts() =>
 
     // Wave 4 target
     if pivots.size() >= 4
-        p2 = pivots.get(1), p3 = pivots.get(0)
-        p1 = pivots.get(2), p0 = pivots.get(3)
+        p0 = pivots.get(3)
+        p1 = pivots.get(2)
+        p2 = pivots.get(1)
+        p3 = pivots.get(0)
         is_bullish = p1.price > p0.price
         w3_len = math.abs(p3.price - p2.price)
         w4_target = p3.price + (is_bullish ? -0.382 * w3_len : 0.382 * w3_len)
@@ -352,7 +356,10 @@ update_forecasts() =>
 
     // Wave 5 target
     if pivots.size() >= 5
-        p0 = pivots.get(4), p1 = pivots.get(3), p3 = pivots.get(1), p4 = pivots.get(0)
+        p0 = pivots.get(4)
+        p1 = pivots.get(3)
+        p3 = pivots.get(1)
+        p4 = pivots.get(0)
         is_bullish = p1.price > p0.price
         w1_len = math.abs(p1.price - p0.price)
         w03_dist = math.abs(p3.price - p0.price)
@@ -362,10 +369,13 @@ update_forecasts() =>
 
     // Wave C target
     if pivots.size() >= 3
-        p0 = pivots.get(2), p1 = pivots.get(1), p2 = pivots.get(0)
+        p0 = pivots.get(2)
+        p1 = pivots.get(1)
+        p2 = pivots.get(0)
         is_bullish_A = p1.price > p0.price
         wA_len = math.abs(p1.price - p0.price)
-        wC_target = p2.price + (is_bullish_A ? -1.0 * wA_len : 1.0 * wA_len)
+        // If Wave A is up, Wave C is also up (in a 3-wave correction move)
+        wC_target = p2.price + (is_bullish_A ? 1.0 * wA_len : -1.0 * wA_len)
         wc_forecast_box := box.new(p2.bar_index, wC_target * 1.005, bar_index + 10, wC_target * 0.995, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="WC Target")
 
 // Call update_forecasts on every bar to keep them extending to the right
