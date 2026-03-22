@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("Comprehensive SMC & ICT Indicator", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 // --- INPUTS ---
@@ -54,8 +54,8 @@ show_sr = input.bool(true, "Show Strong S/R Zones", group="Levels")
 hi = ta.highest(high, swing_lookback * 2 + 1)
 lo = ta.lowest(low, swing_lookback * 2 + 1)
 
-is_swing_high = hi[swing_lookback] == high[swing_lookback]
-is_swing_low = lo[swing_lookback] == low[swing_lookback]
+is_swing_high = high[swing_lookback] == hi
+is_swing_low = low[swing_lookback] == lo
 
 swing_high_price = is_swing_high ? high[swing_lookback] : na
 swing_low_price = is_swing_low ? low[swing_lookback] : na
@@ -157,30 +157,29 @@ if show_crt
 
 // AMD (Accumulation, Manipulation, Distribution) - Daily Open based Power of 3
 var float day_open = na
-if ta.change(time("D"))
+if nz(ta.change(time("D"))) != 0
     day_open := open
 
-if show_amd and not na(day_open)
-    plot(day_open, "Daily Open", color.new(color.yellow, 50), 2, plot.style_linebr)
+// AMD (Accumulation, Manipulation, Distribution) - Daily Open based Power of 3
+plot(show_amd and not na(day_open) ? day_open : na, "Daily Open", color.new(color.yellow, 50), 2, plot.style_linebr)
 
 // VAL/POC/VAH (Simplified Pivot Based Approximation)
 var float last_ph = na
 var float last_pl = na
-if show_vp
-    ph = ta.pivothigh(high, 10, 10)
-    pl = ta.pivotlow(low, 10, 10)
-    if not na(ph)
-        last_ph := ph
-    if not na(pl)
-        last_pl := pl
+ph = ta.pivothigh(high, 10, 10)
+pl = ta.pivotlow(low, 10, 10)
+if not na(ph)
+    last_ph := ph
+if not na(pl)
+    last_pl := pl
 
-    poc = (last_ph + last_pl) / 2
-    vah = last_ph
-    val = last_pl
+poc = (last_ph + last_pl) / 2
+vah = last_ph
+val = last_pl
 
-    plot(poc, "Approx POC", color.new(color.fuchsia, 50), 2, plot.style_linebr)
-    plot(vah, "Approx VAH", color.new(color.red, 70), 1, plot.style_linebr)
-    plot(val, "Approx VAL", color.new(color.green, 70), 1, plot.style_linebr)
+plot(show_vp ? poc : na, "Approx POC", color.new(color.fuchsia, 50), 2, plot.style_linebr)
+plot(show_vp ? vah : na, "Approx VAH", color.new(color.red, 70), 1, plot.style_linebr)
+plot(show_vp ? val : na, "Approx VAL", color.new(color.green, 70), 1, plot.style_linebr)
 
 // OC / Fresh Levels (Untouched Open/Close)
 if show_fresh
