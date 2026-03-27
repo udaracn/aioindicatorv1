@@ -1,0 +1,382 @@
+//@version=6
+indicator("Elliott Wave Pattern & Forecast", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+/*
+    Elliott Wave Patterns and Rules (based on Elliott Wave International Waveopedia)
+
+    1. MOTIVE WAVES (5-wave structure)
+       - Impulse:
+         - Rule 1: Wave 2 never retraces more than 100% of Wave 1.
+         - Rule 2: Wave 3 is never the shortest of the three actionary waves (1, 3, and 5).
+         - Rule 3: Wave 4 never enters the price territory of Wave 1 (no overlap).
+       - Diagonal:
+         - A motive pattern with corrective characteristics.
+         - 3-3-3-3-3 internal structure.
+         - Wave 4 almost always overlaps Wave 1 territory.
+         - Ending Diagonal: Occurs in Wave 5 or Wave C. Contracting (wedge) or Expanding shape.
+         - Leading Diagonal: Occurs in Wave 1 or Wave A.
+       - Extension: Elongated impulse with exaggerated subdivisions (usually in Wave 3).
+       - Truncation: Fifth wave fails to exceed the price extreme of the third wave.
+
+    2. CORRECTIVE WAVES (3-wave structure or variation)
+       - Zigzag (5-3-5):
+         - Wave B retraces less than 100% of Wave A.
+         - Wave C usually exceeds the extreme of Wave A.
+         - Can be Single, Double (W-X-Y), or Triple (W-X-Y-X-Z).
+       - Flat (3-3-5):
+         - Regular: Wave B terminates near start of Wave A; Wave C ends near end of Wave A.
+         - Expanded: Wave B ends beyond start of Wave A; Wave C ends beyond end of Wave A.
+         - Running: Wave B ends beyond start of Wave A; Wave C fails to reach end of Wave A.
+       - Triangle (3-3-3-3-3):
+         - Five waves (A-B-C-D-E).
+         - Contracting: A > B > C > D > E.
+         - Expanding: A < B < C < D < E.
+         - Barrier: B-D line is horizontal.
+       - Combination (Double/Triple Threes):
+         - Sideways combination of simpler corrective patterns (Zigzags, Flats, Triangles).
+         - Labeled W-X-Y (Double Three) or W-X-Y-X-Z (Triple Three).
+
+    3. GUIDELINES
+       - Alternation: If Wave 2 is sharp (e.g., zigzag), Wave 4 is usually sideways (e.g., flat/triangle).
+       - Equality: In a 5-wave sequence where W3 is the extension, W1 and W5 tend toward equality or a 0.618 relationship.
+       - Channeling: Parallel lines marking boundaries. 1-3 parallel through 2 for W4 target; 2-4 parallel through 3 for W5 target.
+       - Throw-over: W5 pierces the channel upper boundary on heavy volume.
+
+    4. FIBONACCI RELATIONSHIPS
+       - Retracements: 38.2%, 50%, 61.8% (common for W2, W4).
+       - Extensions: 1.618, 2.618 (common for W3).
+       - Equality: 1.000, 0.618.
+*/
+
+// --- INPUTS ---
+swing_left = input.int(5, "Swing Left Bars", minval=1)
+swing_right = input.int(5, "Swing Right Bars", minval=1)
+
+show_motive = input.bool(true, "Show Motive Waves (1-5)")
+show_corrective = input.bool(true, "Show Corrective Waves (A-C/A-E)")
+show_forecast = input.bool(true, "Show Forecast Zones")
+
+color_motive = input.color(color.blue, "Motive Wave Color")
+color_corrective = input.color(color.red, "Corrective Wave Color")
+color_forecast = input.color(color.new(color.gray, 50), "Forecast Color")
+
+// --- TYPES ---
+type Pivot
+    float price
+    int bar_index
+    bool is_high
+
+// --- GLOBALS ---
+var Pivot[] pivots = array.new<Pivot>()
+
+// --- LOGIC ---
+ph = ta.pivothigh(high, swing_left, swing_right)
+pl = ta.pivotlow(low, swing_left, swing_right)
+
+if not na(ph)
+    pivots.unshift(Pivot.new(ph, bar_index[swing_right], true))
+    if pivots.size() > 50
+        pivots.pop()
+
+if not na(pl)
+    pivots.unshift(Pivot.new(pl, bar_index[swing_right], false))
+    if pivots.size() > 50
+        pivots.pop()
+
+// Helper functions for pattern matching
+get_pivot(index) =>
+    index < pivots.size() ? pivots.get(index) : na
+
+// --- MOTIVE WAVE DETECTION (1-2-3-4-5) ---
+detect_motive() =>
+    if pivots.size() < 6
+        return [false, false, false, false, false, false]
+
+    p0 = pivots.get(5)
+    p1 = pivots.get(4)
+    p2 = pivots.get(3)
+    p3 = pivots.get(2)
+    p4 = pivots.get(1)
+    p5 = pivots.get(0)
+
+    is_bullish = p1.price > p0.price
+
+    // Check Impulse Rules
+    w1_len = math.abs(p1.price - p0.price)
+    w2_retrace = math.abs(p2.price - p1.price)
+    w3_len = math.abs(p3.price - p2.price)
+    w4_retrace = math.abs(p4.price - p3.price)
+    w5_len = math.abs(p5.price - p4.price)
+
+    rule1 = w2_retrace <= w1_len // W2 retraces <= 100% of W1
+    rule2 = w3_len >= w1_len or w3_len >= w5_len // W3 is not the shortest
+    rule3_impulse = is_bullish ? p4.price > p1.price : p4.price < p1.price // W4 doesn't overlap W1
+    rule3_diagonal = not rule3_impulse // W4 overlaps W1
+
+    is_impulse = rule1 and rule2 and rule3_impulse
+    is_diagonal = rule1 and rule2 and rule3_diagonal
+
+    // Truncation check
+    is_truncated = is_bullish ? p5.price < p3.price : p5.price > p3.price
+
+    // Extension check (usually W3)
+    is_w3_extension = w3_len > 1.618 * w1_len
+
+    // Throw-over check
+    // Draw line 1-3, parallel through 2. Check if p5 pierces it.
+    // Simplified: Check if p5.price > p3.price + (p3.price - p1.price) * ratio
+    // A more accurate way is using the slope of 1-3.
+    slope_13 = (p3.price - p1.price) / (p3.bar_index - p1.bar_index)
+    expected_p5_upper = p2.price + slope_13 * (p5.bar_index - p2.bar_index)
+    is_throw_over = is_bullish ? p5.price > expected_p5_upper : p5.price < expected_p5_upper
+
+    // Return detection results
+    [is_impulse, is_diagonal, is_truncated, is_w3_extension, is_throw_over, is_bullish]
+
+// --- CORRECTIVE WAVE DETECTION (A-B-C / A-B-C-D-E) ---
+detect_corrective() =>
+    if pivots.size() < 4
+        return [false, false, false, false, false, false, false]
+
+    p0 = pivots.get(3)
+    p1 = pivots.get(2)
+    p2 = pivots.get(1)
+    p3 = pivots.get(0)
+
+    is_bearish_corr = p1.price < p0.price // A wave is down
+
+    // 3-wave correction (A-B-C)
+    wA_len = math.abs(p1.price - p0.price)
+    wB_retrace = math.abs(p2.price - p1.price)
+    wC_len = math.abs(p3.price - p2.price)
+
+    // Zigzag: B < 100% A, C exceeds A extreme
+    is_zigzag = wB_retrace < wA_len and (is_bearish_corr ? p3.price < p1.price : p3.price > p1.price)
+
+    // Flats
+    // Regular: B ~ A, C ~ A
+    is_flat_regular = wB_retrace >= 0.9 * wA_len and wB_retrace <= 1.05 * wA_len and wC_len >= 0.9 * wA_len
+
+    // Expanded: B > A, C > A
+    is_flat_expanded = wB_retrace > 1.05 * wA_len and (is_bearish_corr ? p3.price < p1.price : p3.price > p1.price)
+
+    // Running: B > A, C fails to reach A extreme
+    is_flat_running = wB_retrace > 1.05 * wA_len and (is_bearish_corr ? p3.price > p1.price : p3.price < p1.price)
+
+    // Triangles (A-B-C-D-E)
+    is_triangle = false
+    is_expanding_tri = false
+    if pivots.size() >= 6
+        pa = pivots.get(4)
+        pb = pivots.get(3)
+        pc = pivots.get(2)
+        pd = pivots.get(1)
+        pe = pivots.get(0)
+
+        // Contracting: A > B > C > D > E
+        is_contracting = math.abs(pb.price-pa.price) > math.abs(pc.price-pb.price) and math.abs(pc.price-pb.price) > math.abs(pd.price-pc.price) and math.abs(pd.price-pc.price) > math.abs(pe.price-pd.price)
+        // Expanding: A < B < C < D < E
+        is_expanding = math.abs(pb.price-pa.price) < math.abs(pc.price-pb.price) and math.abs(pc.price-pb.price) < math.abs(pd.price-pc.price) and math.abs(pd.price-pc.price) < math.abs(pe.price-pd.price)
+
+        is_triangle := is_contracting
+        is_expanding_tri := is_expanding
+
+    // Combination (W-X-Y) - Very simplified, just checking if we have multiple corrective looking moves
+    is_combination = pivots.size() >= 6 and (not is_zigzag and not is_triangle and not is_flat_regular)
+
+    [is_zigzag, is_flat_regular, is_flat_expanded, is_flat_running, is_triangle, is_expanding_tri, is_combination]
+
+// --- FORECASTING ---
+forecast_next_waves() =>
+    if not show_forecast or pivots.size() < 2
+        return
+
+    // Wave 3 target (after 1-2)
+    if pivots.size() >= 3
+        p0 = pivots.get(2)
+        p1 = pivots.get(1)
+        p2 = pivots.get(0)
+
+        is_bullish = p1.price > p0.price
+        w1_len = math.abs(p1.price - p0.price)
+
+        // Target for W3 at 1.618 of W1 from W2
+        w3_target = p2.price + (is_bullish ? 1.618 * w1_len : -1.618 * w1_len)
+        box.new(p2.bar_index, w3_target * 1.01, bar_index + 20, w3_target * 0.99, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="W3 Target")
+
+    // Wave 4 target (after 1-2-3)
+    if pivots.size() >= 4
+        p0 = pivots.get(3)
+        p1 = pivots.get(2)
+        p2 = pivots.get(1)
+        p3 = pivots.get(0)
+
+        is_bullish = p1.price > p0.price
+        w3_len = math.abs(p3.price - p2.price)
+
+        // Target for W4 at 0.382 retracement of W3
+        w4_target = p3.price + (is_bullish ? -0.382 * w3_len : 0.382 * w3_len)
+        box.new(p3.bar_index, w4_target * 1.01, bar_index + 20, w4_target * 0.99, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="W4 Target")
+
+    // Wave 5 target (after 1-2-3-4)
+    if pivots.size() >= 5
+        p0 = pivots.get(4)
+        p1 = pivots.get(3)
+        p2 = pivots.get(2)
+        p3 = pivots.get(1)
+        p4 = pivots.get(0)
+
+        is_bullish = p1.price > p0.price
+        w1_len = math.abs(p1.price - p0.price)
+        w03_dist = math.abs(p3.price - p0.price)
+
+        // Target for W5 at 1.0 of W1 or 0.618 of 0-3
+        w5_target1 = p4.price + (is_bullish ? 1.0 * w1_len : -1.0 * w1_len)
+        w5_target2 = p4.price + (is_bullish ? 0.618 * w03_dist : -0.618 * w03_dist)
+        box.new(p4.bar_index, w5_target1, bar_index + 20, w5_target2, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="W5 Target Zone")
+
+    // Wave C target (after A-B)
+    if pivots.size() >= 3
+        p0 = pivots.get(2)
+        p1 = pivots.get(1)
+        p2 = pivots.get(0)
+
+        is_bullish_A = p1.price > p0.price
+        wA_len = math.abs(p1.price - p0.price)
+
+        // Target for WC at 1.0 or 1.618 of WA
+        wC_target = p2.price + (is_bullish_A ? -1.0 * wA_len : 1.0 * wA_len)
+        box.new(p2.bar_index, wC_target * 1.01, bar_index + 20, wC_target * 0.99, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="WC Target")
+
+// --- EXECUTION ---
+if not na(ph) or not na(pl)
+    // Run detections
+    [is_impulse, is_diagonal, is_truncated, is_w3_ext, is_throw_over, is_bull] = detect_motive()
+    [is_zigzag, is_flat_reg, is_flat_exp, is_flat_run, is_tri, is_exp_tri, is_comb] = detect_corrective()
+
+    // Draw Motive
+    if show_motive and (is_impulse or is_diagonal)
+        p0 = pivots.get(5)
+        p1 = pivots.get(4)
+        p2 = pivots.get(3)
+        p3 = pivots.get(2)
+        p4 = pivots.get(1)
+        p5 = pivots.get(0)
+
+        line.new(p0.bar_index, p0.price, p1.bar_index, p1.price, color=color_motive, width=2)
+        line.new(p1.bar_index, p1.price, p2.bar_index, p2.price, color=color_motive, width=2)
+        line.new(p2.bar_index, p2.price, p3.bar_index, p3.price, color=color_motive, width=2)
+        line.new(p3.bar_index, p3.price, p4.bar_index, p4.price, color=color_motive, width=2)
+        line.new(p4.bar_index, p4.price, p5.bar_index, p5.price, color=color_motive, width=2)
+
+        label.new(p1.bar_index, p1.price, "1", style=label.style_none, textcolor=color_motive)
+        label.new(p2.bar_index, p2.price, "2", style=label.style_none, textcolor=color_motive)
+        label.new(p3.bar_index, p3.price, "3" + (is_w3_ext ? " (Ext)" : ""), style=label.style_none, textcolor=color_motive)
+        label.new(p4.bar_index, p4.price, "4", style=label.style_none, textcolor=color_motive)
+        label.new(p5.bar_index, p5.price, "5" + (is_truncated ? " (Trunc)" : "") + (is_throw_over ? " (Throw)" : ""), style=label.style_none, textcolor=color_motive)
+
+        if is_diagonal
+            label.new(p3.bar_index, p3.price, "Diagonal", color=color.new(color_motive, 80))
+
+    // Draw Corrective
+    if show_corrective and (is_zigzag or is_flat_reg or is_flat_exp or is_flat_run)
+        p0 = pivots.get(3)
+        p1 = pivots.get(2)
+        p2 = pivots.get(1)
+        p3 = pivots.get(0)
+
+        line.new(p0.bar_index, p0.price, p1.bar_index, p1.price, color=color_corrective, width=2)
+        line.new(p1.bar_index, p1.price, p2.bar_index, p2.price, color=color_corrective, width=2)
+        line.new(p2.bar_index, p2.price, p3.bar_index, p3.price, color=color_corrective, width=2)
+
+        label.new(p1.bar_index, p1.price, "A", style=label.style_none, textcolor=color_corrective)
+        label.new(p2.bar_index, p2.price, "B", style=label.style_none, textcolor=color_corrective)
+        label.new(p3.bar_index, p3.price, "C", style=label.style_none, textcolor=color_corrective)
+
+        corr_type = is_zigzag ? "Zigzag" : is_flat_reg ? "Flat" : is_flat_exp ? "Exp Flat" : "Run Flat"
+        label.new(p2.bar_index, p2.price, corr_type, color=color.new(color_corrective, 80), size=size.small)
+
+    if show_corrective and is_tri
+        pa = pivots.get(4)
+        pb = pivots.get(3)
+        pc = pivots.get(2)
+        pd = pivots.get(1)
+        pe = pivots.get(0)
+
+        line.new(pa.bar_index, pa.price, pb.bar_index, pb.price, color=color_corrective, width=2)
+        line.new(pb.bar_index, pb.price, pc.bar_index, pc.price, color=color_corrective, width=2)
+        line.new(pc.bar_index, pc.price, pd.bar_index, pd.price, color=color_corrective, width=2)
+        line.new(pd.bar_index, pd.price, pe.bar_index, pe.price, color=color_corrective, width=2)
+
+        label.new(pa.bar_index, pa.price, "A", style=label.style_none, textcolor=color_corrective)
+        label.new(pb.bar_index, pb.price, "B", style=label.style_none, textcolor=color_corrective)
+        label.new(pc.bar_index, pc.price, "C", style=label.style_none, textcolor=color_corrective)
+        label.new(pd.bar_index, pd.price, "D", style=label.style_none, textcolor=color_corrective)
+        label.new(pe.bar_index, pe.price, "E", style=label.style_none, textcolor=color_corrective)
+
+    // Forecast
+    // forecast_next_waves()
+
+// --- PERSISTENT FORECAST BOXES (Updating) ---
+var box w3_forecast_box = na
+var box w4_forecast_box = na
+var box w5_forecast_box = na
+var box wc_forecast_box = na
+
+update_forecasts() =>
+    if not show_forecast or pivots.size() < 2
+        return
+
+    // Clear old boxes if we want only the latest
+    box.delete(w3_forecast_box)
+    box.delete(w4_forecast_box)
+    box.delete(w5_forecast_box)
+    box.delete(wc_forecast_box)
+
+    // Wave 3 target
+    if pivots.size() >= 3
+        p0 = pivots.get(2)
+        p1 = pivots.get(1)
+        p2 = pivots.get(0)
+        is_bullish = p1.price > p0.price
+        w1_len = math.abs(p1.price - p0.price)
+        w3_target = p2.price + (is_bullish ? 1.618 * w1_len : -1.618 * w1_len)
+        w3_forecast_box := box.new(p2.bar_index, w3_target * 1.005, bar_index + 10, w3_target * 0.995, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="W3 Target")
+
+    // Wave 4 target
+    if pivots.size() >= 4
+        p0 = pivots.get(3)
+        p1 = pivots.get(2)
+        p2 = pivots.get(1)
+        p3 = pivots.get(0)
+        is_bullish = p1.price > p0.price
+        w3_len = math.abs(p3.price - p2.price)
+        w4_target = p3.price + (is_bullish ? -0.382 * w3_len : 0.382 * w3_len)
+        w4_forecast_box := box.new(p3.bar_index, w4_target * 1.005, bar_index + 10, w4_target * 0.995, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="W4 Target")
+
+    // Wave 5 target
+    if pivots.size() >= 5
+        p0 = pivots.get(4)
+        p1 = pivots.get(3)
+        p3 = pivots.get(1)
+        p4 = pivots.get(0)
+        is_bullish = p1.price > p0.price
+        w1_len = math.abs(p1.price - p0.price)
+        w03_dist = math.abs(p3.price - p0.price)
+        w5_target1 = p4.price + (is_bullish ? 1.0 * w1_len : -1.0 * w1_len)
+        w5_target2 = p4.price + (is_bullish ? 0.618 * w03_dist : -0.618 * w03_dist)
+        w5_forecast_box := box.new(p4.bar_index, w5_target1, bar_index + 10, w5_target2, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="W5 Target Zone")
+
+    // Wave C target
+    if pivots.size() >= 3
+        p0 = pivots.get(2)
+        p1 = pivots.get(1)
+        p2 = pivots.get(0)
+        is_bullish_A = p1.price > p0.price
+        wA_len = math.abs(p1.price - p0.price)
+        // If Wave A is up, Wave C is also up (in a 3-wave correction move)
+        wC_target = p2.price + (is_bullish_A ? 1.0 * wA_len : -1.0 * wA_len)
+        wc_forecast_box := box.new(p2.bar_index, wC_target * 1.005, bar_index + 10, wC_target * 0.995, bgcolor=color.new(color_forecast, 90), border_color=color_forecast, border_style=line.style_dashed, text="WC Target")
+
+// Call update_forecasts on every bar to keep them extending to the right
+update_forecasts()
